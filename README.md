@@ -34,8 +34,12 @@ scorehalo/
     audiveris_backend.py  # drives the `Audiveris` CLI (AGPL, arm's length; .mxl)
     oemer_backend.py # drives the `oemer` CLI (MIT, arm's length)
   validate.py        # stdlib MusicXML 4.0 structural checks
+  ingest.py          # PDF/image -> page PNGs (pypdfium2 + Pillow)
+  workdir.py         # predictable run directory + manifest/log helpers
   join.py            # partwise page joiner (concat measures, mark page breaks)
   batch.py           # recognize many pages + join into one score + manifest
+  pipeline.py        # ingest -> recognize -> join -> export -> manifest (the `run` verb)
+  export.py          # write MusicXML / MXL / SVG / PDF (cairosvg + pypdf)
   compare.py         # run several engines on the same pages + agreement report
   analysis.py        # theory-aware normalize/analyze via music21 (optional dependency)
   render.py          # MusicXML -> SVG pages via Verovio (optional dependency)
@@ -44,9 +48,34 @@ scorehalo/
 tests/               # unittest contract tests
 ```
 
+## Quick start
+
+One command turns a scanned songbook PDF (or images) into a reviewable score:
+
+```bash
+scorehalo run songbook.pdf -b homr --render --pdf --serve
+#   -> songbook.work/pages/page-0001.png ...   (rasterized source pages)
+#   -> songbook.work/out/pages/page-001.musicxml ...  (per-page recognition)
+#   -> songbook.work/score.musicxml / .mxl      (joined score)
+#   -> songbook.work/score.pdf, songbook.work/svg/  (rendered preview)
+#   -> songbook.work/manifest.json              (per-page status + decisions)
+```
+
+`scorehalo doctor` prints the interpreter/package paths, optional dependencies
+and which recognition engines are runnable here — the first thing to check on a
+new machine.
+
 ## Usage
 
 ```bash
+# what can run here? (paths, optional deps, engines)
+python -m scorehalo doctor
+
+# one command: PDF/images -> pages -> recognized -> joined -> exported -> review
+python -m scorehalo run songbook.pdf --backend homr -w songbook.work --render --pdf
+python -m scorehalo run songbook.pdf --pages 3-10,15        # skip covers/front matter
+python -m scorehalo run scan.png --backend stub --serve     # then open the review UI
+
 # list backends and whether each can run here
 python -m scorehalo backends
 python -m scorehalo backends --json

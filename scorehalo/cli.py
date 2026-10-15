@@ -75,6 +75,74 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_pages(spec: str | None) -> set[int] | None:
+    """Parse a page selection like ``"3-10,15"`` into a set of 1-based numbers."""
+    if not spec:
+        return None
+    pages: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            low, high = part.split("-", 1)
+            pages.update(range(int(low), int(high) + 1))
+        else:
+            pages.add(int(part))
+    return pages
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    from scorehalo.ingest import IngestError
+    from scorehalo.pipeline import run_pipeline
+    from scorehalo.workdir import default_root
+
+    sources: list[Path] = []
+    for item in args.sources:
+        path = Path(item)
+        if path.is_dir():
+            sources.extend(sorted(p for p in path.iterdir() if p.is_file()))
+        else:
+            sources.append(path)
+    if not sources:
+        print("error: no input files", file=sys.stderr)
+        return 2
+
+    root = Path(args.work) if args.work else default_root(sources[0])
+    try:
+        result = run_pipeline(
+            [str(s) for s in sources],
+            root,
+            engine=args.backend,
+            dpi=args.dpi,
+            page_numbers=_parse_pages(args.pages),
+            render_svg=args.render,
+            make_pdf=args.pdf,
+            options={"cache": True} if args.cache else None,
+        )
+    except (IngestError, BackendError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"work dir: {result.root}")
+    print(f"pages ok: {result.ok_count}/{result.page_count}")
+    if result.joined:
+        print(f"score:    {result.joined}")
+    for fmt, path in result.exports.items():
+        print(f"{fmt:<9}: {path}")
+    print(f"manifest: {result.manifest}")
+
+    if args.serve:
+        from scorehalo.serve import serve as serve_review
+
+        serve_review(str(result.root), port=args.port, open_browser=args.open)
+
+    return 0 if result.ok_count == result.page_count else 1
+
+
 def _cmd_backends(args: argparse.Namespace) -> int:
     described = backends.describe_backends()
     if args.json:
@@ -298,6 +366,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="check the environment: deps, engines, render")
     doctor.set_defaults(func=_cmd_doctor)
+
+    run = sub.add_parser(
+        "run", help="full pipeline: document -> recognized, joined, reviewable score"
+    )
+    run.add_argument("sources", nargs="+", help="PDF/image files, or a directory")
+    run.add_argument("-b", "--backend", default="homr", help="engine (default: homr)")
+    run.add_argument("-w", "--work", default=None, help="work dir (default: <stem>.work)")
+    run.add_argument("--dpi", type=int, default=300, help="render DPI for PDFs")
+    run.add_argument("--pages", default=None, help="PDF page selection, e.g. 3-10,15")
+    run.add_argument("--render", action="store_true", help="also render SVG pages")
+    run.add_argument("--pdf", action="store_true", help="also produce a PDF score")
+    run.add_argument("--cache", action="store_true", help="pass --cache to the engine")
+    run.add_argument("--serve", action="store_true", help="start review UI when done")
+    run.add_argument("--port", type=int, default=8765, help="review UI port")
+    run.add_argument("--open", action="store_true", help="open review UI in a browser")
+    run.set_defaults(func=_cmd_run)
 
     listing = sub.add_parser("backends", help="list available recognition backends")
     listing.add_argument("--json", action="store_true", help="emit machine-readable JSON")

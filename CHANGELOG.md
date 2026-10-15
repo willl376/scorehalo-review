@@ -6,9 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `run` command: the one-command pipeline (`ingest -> recognize -> join ->
+  export -> manifest`) for PDFs or images, with `--pages`, `--render`, `--pdf`,
+  `--cache` and `--serve`.
+- `ingest` module: PDF (pypdfium2) and image (Pillow) inputs -> `page-NNNN.png`.
+- `workdir` module: a predictable run directory (`pages/`, `out/`, `svg/`,
+  `score.*`, `manifest.json`, `run.log`).
+- `export` module: write MusicXML, compressed MusicXML (`.mxl`), SVG pages
+  (Verovio) and PDF (cairosvg + pypdf).
+- `pipeline` module: orchestrates ingest/recognize/join/export and writes a
+  review-UI-compatible `manifest.json` (`joined`, per-page `decision`, ...).
+- `serve` review UI upgrade: original-scan + engraved thumbnails, click-to-zoom
+  overlay, and per-page **Accept/Reject/Clear** that persists into
+  `manifest.json`.
 - `doctor` command: reports Python/package paths, optional dependencies
   (music21, verovio, pypdfium2, opencv, numpy) and recognition-engine
   availability in one glance.
+- Installed `scorehalo` launcher (`~/.local/bin/scorehalo`) and a consolidated
+  `.venv` (homr, verovio, music21, pypdfium2, cairosvg, pypdf).
 - `_exec.locate_tool()`: engines installed beside the interpreter (e.g.
   `.venv/bin/homr`) are now found without PATH changes.
 
