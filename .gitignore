@@ -1,0 +1,31 @@
+# ScoreHalo working artifacts
+data/
+work/
+out/
+compare/
+render/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual environments (heavy: homr models, onnxruntime, ...)
+.venv/
+.venv-*/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
