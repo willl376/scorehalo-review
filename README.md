@@ -36,6 +36,8 @@ scorehalo/
   validate.py        # stdlib MusicXML 4.0 structural checks
   ingest.py          # PDF/image -> page PNGs (pypdfium2 + Pillow)
   workdir.py         # predictable run directory + manifest/log helpers
+  triage.py          # fast page classification (blank/cover/photo/music/text)
+  restore.py         # graphics masking + contrast enhancement (the differentiator)
   join.py            # partwise page joiner (concat measures, mark page breaks)
   batch.py           # recognize many pages + join into one score + manifest
   pipeline.py        # ingest -> recognize -> join -> export -> manifest (the `run` verb)
@@ -65,6 +67,28 @@ scorehalo run songbook.pdf -b homr --render --pdf --serve
 and which recognition engines are runnable here — the first thing to check on a
 new machine.
 
+## Graphics tolerance (the differentiator)
+
+Classic OMR (Audiveris) tries to *decompose* a page and breaks down when it meets
+a photograph or illustration. ScoreHalo front-loads two cheap, conservative steps
+so the engine only ever sees music:
+
+- **Triage** (`triage.py`) classifies each page from whole-page statistics —
+  colourfulness (Hasler & Süsstrunk), ink ratio and full-width line structure —
+  and skips high-confidence non-music pages (blank, colour cover/photo) before
+  spending CPU. `--skip-text` additionally drops pages with no staff-like lines;
+  the default never skips a page that has plausible line structure, so sparse
+  music is never silently lost.
+- **Restore** (`restore.py`) paints out large non-music regions (colour blocks
+  and solid photo areas) while leaving the staff notation intact, and can raise
+  faint scans with CLAHE (`--enhance`). It is a no-op on an ordinary grayscale
+  music page.
+
+Both are reflected in `manifest.json` (per-page `triage`, `restore`, `skipped`,
+`skip_reason`) and surfaced in the review UI, where skipped pages are shown with
+a reason and no recognized thumbnail. OpenCV is required for restore
+(`pip install opencv-python-headless`); triage works from numpy alone.
+
 ## Usage
 
 ```bash
@@ -75,6 +99,11 @@ python -m scorehalo doctor
 python -m scorehalo run songbook.pdf --backend homr -w songbook.work --render --pdf
 python -m scorehalo run songbook.pdf --pages 3-10,15        # skip covers/front matter
 python -m scorehalo run scan.png --backend stub --serve     # then open the review UI
+
+# graphics-tolerant pass: skip non-music pages and paint out photos/illustrations
+python -m scorehalo run songbook.pdf --mask-graphics --enhance
+python -m scorehalo run songbook.pdf --skip-text            # also drop lyric/front-matter pages
+python -m scorehalo run songbook.pdf --no-triage            # recognize every page
 
 # list backends and whether each can run here
 python -m scorehalo backends

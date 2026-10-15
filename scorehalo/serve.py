@@ -36,6 +36,7 @@ h1 { margin-top: 0; }
 .tag { display: inline-block; font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px; margin-left: 0.35rem; }
 .tag.accept { background: #dafbe1; color: #1a7f37; }
 .tag.reject { background: #ffe3e0; color: #c0392b; }
+.tag.skip { background: #ececec; color: #666; }
 .links a { font-size: 0.8rem; margin-right: 0.6rem; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
 .pair figure { margin: 0; }
@@ -133,6 +134,7 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
     pages = manifest.get("pages", [])
     engine = html.escape(str(manifest.get("engine") or manifest.get("backend") or "?"))
     ok_count = manifest.get("ok_count", sum(1 for p in pages if p.get("ok")))
+    skipped_count = manifest.get("skipped_count", sum(1 for p in pages if p.get("skipped")))
 
     def raw(rel):
         return f"<a href='{_raw_link(rel)}'>MusicXML</a>" if rel else ""
@@ -146,7 +148,9 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
     parts.append("<h1>ScoreHalo review</h1>")
     parts.append(
         f"<div class='sub'>engine <b>{engine}</b> &middot; "
-        f"{ok_count}/{len(pages)} page(s) valid</div>"
+        f"{ok_count}/{len(pages)} page(s) valid"
+        + (f" &middot; {skipped_count} skipped" if skipped_count else "")
+        + "</div>"
     )
 
     if not render.available():
@@ -185,7 +189,11 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
     for page in pages:
         number = page.get("index")
         source = html.escape(Path(str(page.get("source", ""))).name)
-        if page.get("ok"):
+        skipped = bool(page.get("skipped"))
+        if skipped:
+            reason = html.escape(str(page.get("skip_reason") or "not music"))
+            status = f"<span class='tag skip'>skipped</span> {reason}"
+        elif page.get("ok"):
             status = "<span class='ok'>valid</span>"
         elif page.get("error"):
             status = f"<span class='bad'>error</span> {html.escape(str(page['error']))}"
@@ -193,7 +201,8 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
             status = "<span class='bad'>invalid</span> " + html.escape(
                 "; ".join(page.get("problems") or [])
             )
-        status += _decision_tag(page.get("decision"))
+        if not skipped:
+            status += _decision_tag(page.get("decision"))
         detail = ""
         if page.get("ok"):
             detail = (
@@ -212,20 +221,23 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
                 + "' alt='original page " + str(number) + "'>"
                 "<figcaption>original</figcaption></figure>"
             )
-        figures.append(
-            "<figure><img class='zoom' src='/svg/page?page=" + str(number)
-            + "' alt='page " + str(number) + "'>"
-            "<figcaption>recognized</figcaption></figure>"
-        )
-        pair = "<div class='pair'>" + "".join(figures) + "</div>"
+        if rel:
+            figures.append(
+                "<figure><img class='zoom' src='/svg/page?page=" + str(number)
+                + "' alt='page " + str(number) + "'>"
+                "<figcaption>recognized</figcaption></figure>"
+            )
+        pair = "<div class='pair'>" + "".join(figures) + "</div>" if figures else ""
 
-        actions = (
-            "<div class='actions'>"
-            f"<button class='accept' onclick=\"decide({number},'accept')\">Accept</button>"
-            f"<button class='reject' onclick=\"decide({number},'reject')\">Reject</button>"
-            f"<button onclick=\"decide({number},'clear')\">Clear</button>"
-            "</div>"
-        )
+        actions = ""
+        if not skipped:
+            actions = (
+                "<div class='actions'>"
+                f"<button class='accept' onclick=\"decide({number},'accept')\">Accept</button>"
+                f"<button class='reject' onclick=\"decide({number},'reject')\">Reject</button>"
+                f"<button onclick=\"decide({number},'clear')\">Clear</button>"
+                "</div>"
+            )
 
         parts.append(
             f"<div class='card'><div class='meta'><b>Page {number}</b> &middot; "

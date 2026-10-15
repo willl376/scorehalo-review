@@ -26,6 +26,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   `.venv` (homr, verovio, music21, pypdfium2, cairosvg, pypdf).
 - `_exec.locate_tool()`: engines installed beside the interpreter (e.g.
   `.venv/bin/homr`) are now found without PATH changes.
+- `triage` module: cheap whole-page classification (blank / colour-cover / photo
+  / music / mixed / text) from colourfulness, ink ratio and full-width line
+  structure; high-confidence non-music pages are skipped before recognition.
+- `restore` module: masks large non-music regions (colour blocks / solid photo
+  areas) while preserving notation, plus optional CLAHE contrast enhancement.
+- `run` flags `--no-triage`, `--skip-text`, `--mask-graphics` and `--enhance`;
+  per-page `triage`/`restore`/`skipped`/`skip_reason` are written to
+  `manifest.json` and `skipped_count` is reported.
+- Review UI shows skipped pages with their reason and no recognized thumbnail.
+
+### Fixed
+- `render` retries a rare Verovio font-resource load race instead of surfacing a
+  spurious failure/500.
+- `serve` resolves relative manifest paths (the joined-score link was dropped)
+  while still blocking traversal.
 
 ## [0.0.1] - 2026-10-15
 

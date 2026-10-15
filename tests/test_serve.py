@@ -86,6 +86,35 @@ class IndexTests(unittest.TestCase):
             page = serve.render_index(_make_outdir(Path(tmp)))
             self.assertIn("Verovio is not installed", page)
 
+    def test_index_shows_skipped_page(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_outdir(Path(tmp))
+            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            manifest["pages"].append(
+                {
+                    "index": 2,
+                    "source": "/somewhere/cover.png",
+                    "image": "pages/page-0002.png",
+                    "musicxml_path": None,
+                    "ok": False,
+                    "measures": 0,
+                    "notes": 0,
+                    "problems": [],
+                    "error": None,
+                    "skipped": True,
+                    "skip_reason": "non-music colour page",
+                    "decision": "skipped",
+                }
+            )
+            manifest["skipped_count"] = 1
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            page = serve.render_index(root)
+            self.assertIn("skipped", page)
+            self.assertIn("non-music colour page", page)
+            self.assertIn("1 skipped", page)
+            # a skipped page has no recognized thumbnail
+            self.assertNotIn("/svg/page?page=2", page)
+
 
 class ServerTests(unittest.TestCase):
     def test_make_server_requires_manifest(self) -> None:

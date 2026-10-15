@@ -119,6 +119,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             render_svg=args.render,
             make_pdf=args.pdf,
             options={"cache": True} if args.cache else None,
+            triage=not args.no_triage,
+            skip_text=args.skip_text,
+            mask_graphics=args.mask_graphics,
+            enhance=args.enhance,
         )
     except (IngestError, BackendError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -378,6 +382,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--render", action="store_true", help="also render SVG pages")
     run.add_argument("--pdf", action="store_true", help="also produce a PDF score")
     run.add_argument("--cache", action="store_true", help="pass --cache to the engine")
+    run.add_argument(
+        "--no-triage", action="store_true", help="disable page triage (recognize every page)"
+    )
+    run.add_argument(
+        "--skip-text", action="store_true", help="also skip pages with no staff-like lines"
+    )
+    run.add_argument(
+        "--mask-graphics", action="store_true", help="paint out photos/graphics before recognition"
+    )
+    run.add_argument("--enhance", action="store_true", help="CLAHE contrast enhancement before recognition")
     run.add_argument("--serve", action="store_true", help="start review UI when done")
     run.add_argument("--port", type=int, default=8765, help="review UI port")
     run.add_argument("--open", action="store_true", help="open review UI in a browser")

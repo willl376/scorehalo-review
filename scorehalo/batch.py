@@ -64,14 +64,21 @@ def recognize_pages(
     *,
     dpi: int = 300,
     options: dict | None = None,
+    indices: list[int] | None = None,
 ) -> list[PageOutcome]:
-    """Recognize each source page; write per-page MusicXML under ``outdir/pages``."""
+    """Recognize each source page; write per-page MusicXML under ``outdir/pages``.
+
+    ``indices`` optionally gives the page index to use for each source (defaults
+    to 1-based enumeration), so callers that skip pages keep original numbering.
+    """
     out = Path(outdir)
     pages_dir = out / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
+    if indices is None:
+        indices = list(range(1, len(sources) + 1))
 
     outcomes: list[PageOutcome] = []
-    for index, source in enumerate(sources, start=1):
+    for index, source in zip(indices, sources):
         src = Path(source)
         outcome = PageOutcome(index=index, source=str(src))
         try:

@@ -31,6 +31,7 @@ class PipelineLayoutTests(unittest.TestCase):
                 [str(root / "a.png"), str(root / "b.png")],
                 root / "work",
                 engine="stub",
+                triage=False,
                 log=_silent,
             )
             work = root / "work"
@@ -57,6 +58,7 @@ class PipelineLayoutTests(unittest.TestCase):
                 [str(root / "a.png")],
                 root / "w",
                 engine="stub",
+                triage=False,
                 render_svg=True,
                 make_pdf=True,
                 log=_silent,
@@ -94,6 +96,58 @@ class PipelineLayoutTests(unittest.TestCase):
             self.assertEqual(result.page_count, 2)
             manifest = json.loads((root / "w" / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual([p["source_page"] for p in manifest["pages"]], [1, 3])
+
+
+def _staff_png(path: Path, h: int = 400, w: int = 400, block: bool = False) -> None:
+    import numpy as np
+    from PIL import Image
+
+    img = np.full((h, w, 3), 255, dtype=np.uint8)
+    for base in range(60, h - 60, 80):
+        for k in range(5):
+            y = base + k * 10
+            img[y : y + 2, :, :] = 0
+    if block:
+        img[200:260, 200:260, :] = 0
+    Image.fromarray(img).save(path)
+
+
+class PipelineTriageTests(unittest.TestCase):
+    def test_triage_skips_blank_page(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _png(root / "blank.png")  # pure white -> blank
+            result = run_pipeline([str(root / "blank.png")], root / "w", engine="stub", log=_silent)
+            manifest = json.loads((root / "w" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(result.ok_count, 0)
+            self.assertEqual(manifest["skipped_count"], 1)
+            self.assertTrue(manifest["pages"][0]["skipped"])
+            self.assertEqual(manifest["pages"][0]["decision"], "skipped")
+            self.assertIsNone(manifest["pages"][0]["musicxml_path"])
+
+    def test_triage_keeps_music_page(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _staff_png(root / "music.png")
+            result = run_pipeline([str(root / "music.png")], root / "w", engine="stub", log=_silent)
+            manifest = json.loads((root / "w" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(result.ok_count, 1)
+            self.assertFalse(manifest["pages"][0]["skipped"])
+            self.assertEqual(manifest["pages"][0]["triage"]["label"], "music")
+
+    def test_mask_graphics_restores_page(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _staff_png(root / "music.png", block=True)
+            run_pipeline(
+                [str(root / "music.png")], root / "w", engine="stub",
+                mask_graphics=True, log=_silent,
+            )
+            manifest = json.loads((root / "w" / "manifest.json").read_text(encoding="utf-8"))
+            page = manifest["pages"][0]
+            self.assertIsNotNone(page["restore"])
+            self.assertGreaterEqual(len(page["restore"]["regions"]), 1)
+            self.assertIn("restored", page["image"])
 
 
 if __name__ == "__main__":  # pragma: no cover

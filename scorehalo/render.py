@@ -37,11 +37,14 @@ def available() -> bool:
         return False
 
 
-def render_svgs(musicxml: str, options: dict | None = None) -> list[str]:
+def render_svgs(
+    musicxml: str, options: dict | None = None, *, attempts: int = 3
+) -> list[str]:
     """Render ``musicxml`` to one SVG string per page.
 
     Raises ``RuntimeError`` if Verovio is unavailable and ``ValueError`` if the
-    document cannot be loaded.
+    document cannot be loaded.  Verovio has a rare one-off font-resource load
+    race, so loading is retried a few times with a fresh toolkit before giving up.
     """
     if not available():
         raise RuntimeError(
@@ -50,12 +53,19 @@ def render_svgs(musicxml: str, options: dict | None = None) -> list[str]:
         )
     import verovio
 
-    toolkit = verovio.toolkit()
     merged = dict(_DEFAULT_OPTIONS)
     if options:
         merged.update(options)
-    toolkit.setOptions(merged)
-    if not toolkit.loadData(musicxml):
-        raise ValueError("Verovio could not load the MusicXML document")
-    count = toolkit.getPageCount()
-    return [toolkit.renderToSVG(page) for page in range(1, count + 1)]
+
+    last_error: Exception | None = None
+    for _ in range(max(1, attempts)):
+        try:
+            toolkit = verovio.toolkit()
+            toolkit.setOptions(merged)
+            if toolkit.loadData(musicxml):
+                count = toolkit.getPageCount()
+                return [toolkit.renderToSVG(page) for page in range(1, count + 1)]
+            last_error = ValueError("Verovio could not load the MusicXML document")
+        except Exception as exc:  # noqa: BLE001 - retry transient toolkit failures
+            last_error = exc
+    raise last_error or ValueError("Verovio could not load the MusicXML document")
