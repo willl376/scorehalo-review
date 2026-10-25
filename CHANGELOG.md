@@ -32,7 +32,8 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 - `restore` module: masks large non-music regions (colour blocks / solid photo
   areas) while preserving notation, plus optional CLAHE contrast enhancement.
 - `run` flags `--no-triage`, `--skip-text`, `--mask-graphics` and `--enhance`;
-  per-page `triage`/`restore`/`skipped`/`skip_reason` are written to
+  `--enhance-clip` / `--enhance-tile` tune CLAHE.
+- Per-page `triage`/`restore`/`skipped`/`skip_reason` are written to
   `manifest.json` and `skipped_count` is reported.
 - Review UI shows skipped pages with their reason and no recognized thumbnail.
 
@@ -41,6 +42,8 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
   spurious failure/500.
 - `serve` resolves relative manifest paths (the joined-score link was dropped)
   while still blocking traversal.
+- `join` inserts `<print new-page="yes"/>` before notes/attributes for correct
+  page breaks.
 
 ## [0.0.1] - 2026-10-15
 
