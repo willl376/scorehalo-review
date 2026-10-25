@@ -165,6 +165,7 @@ def restore_page(
     *,
     mask: bool = True,
     enhance_contrast: bool = False,
+    enhance_kwargs: dict | None = None,
     **kwargs,
 ) -> tuple[np.ndarray, dict]:
     """Mask graphics (colour-aware) and/or enhance an RGB page.
@@ -179,6 +180,8 @@ def restore_page(
         out, regions = mask_graphics(out, **kwargs)
         report["regions"] = [r.to_dict() for r in regions]
     if enhance_contrast:
-        out = enhance(out)
+        ek = enhance_kwargs or {}
+        out = enhance(out, **ek)
         report["enhanced"] = True
+        report["enhance"] = {k: ek.get(k) for k in ("clip_limit", "tile") if k in ek}
     return out, report

@@ -98,7 +98,16 @@ def join_musicxml(documents: list[str], *, new_page: bool = True) -> str:
                 counters[part_id] += 1
                 joined.set("number", str(counters[part_id]))
                 if new_page and doc_index > 0 and measure_index == 0:
-                    joined.insert(0, ET.Element("print", {"new-page": "yes"}))
+                    # Insert new-page print before notes/attributes if possible
+                    print_el = ET.Element("print", {"new-page": "yes"})
+                    inserted = False
+                    for idx, child in enumerate(list(joined)):
+                        if _localname(child.tag) in ("attributes", "direction", "note", "backup", "forward", "sound", "barline"):
+                            joined.insert(idx, print_el)
+                            inserted = True
+                            break
+                    if not inserted:
+                        joined.insert(0, print_el)
                 part_el.append(joined)
 
     ET.indent(result, space="  ")

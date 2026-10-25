@@ -109,6 +109,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     root = Path(args.work) if args.work else default_root(sources[0])
+    options = {"cache": True} if args.cache else {}
+    if args.enhance_clip is not None or args.enhance_tile is not None:
+        options["enhance"] = {}
+        if args.enhance_clip is not None:
+            options["enhance"]["clip_limit"] = args.enhance_clip
+        if args.enhance_tile is not None:
+            options["enhance"]["tile"] = args.enhance_tile
     try:
         result = run_pipeline(
             [str(s) for s in sources],
@@ -118,7 +125,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             page_numbers=_parse_pages(args.pages),
             render_svg=args.render,
             make_pdf=args.pdf,
-            options={"cache": True} if args.cache else None,
+            options=options or None,
             triage=not args.no_triage,
             skip_text=args.skip_text,
             mask_graphics=args.mask_graphics,
@@ -392,6 +399,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--mask-graphics", action="store_true", help="paint out photos/graphics before recognition"
     )
     run.add_argument("--enhance", action="store_true", help="CLAHE contrast enhancement before recognition")
+    run.add_argument("--enhance-clip", type=float, help="CLAHE clip limit (default 2.0)")
+    run.add_argument("--enhance-tile", type=int, help="CLAHE tile grid size (default 8)")
     run.add_argument("--serve", action="store_true", help="start review UI when done")
     run.add_argument("--port", type=int, default=8765, help="review UI port")
     run.add_argument("--open", action="store_true", help="open review UI in a browser")

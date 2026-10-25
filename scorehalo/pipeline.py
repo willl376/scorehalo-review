@@ -124,6 +124,9 @@ def run_pipeline(
     from . import restore as restore_mod
     from . import triage as triage_mod
 
+    options = options or {}
+    enhance_kwargs = options.get("enhance") if isinstance(options.get("enhance"), dict) else None
+
     meta: dict[int, dict] = {}
     recognize_indices: list[int] = []
     recognize_images: list[str] = []
@@ -142,7 +145,10 @@ def run_pipeline(
             continue
         if mask_graphics or enhance:
             restored, report = restore_mod.restore_page(
-                triage_mod.load_rgb(page.image), mask=mask_graphics, enhance_contrast=enhance
+                triage_mod.load_rgb(page.image),
+                mask=mask_graphics,
+                enhance_contrast=enhance,
+                enhance_kwargs=enhance_kwargs,
             )
             nregions = len(report.get("regions", []))
             if nregions or report.get("enhanced"):
