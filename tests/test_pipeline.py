@@ -21,6 +21,18 @@ def _silent(*_args, **_kwargs) -> None:
     return None
 
 
+def _has(module: str) -> bool:
+    try:
+        __import__(module)
+        return True
+    except Exception:  # noqa: BLE001 - any import problem means "not usable"
+        return False
+
+
+HAS_PDF = _has("pypdfium2") and _has("pypdf")
+HAS_RENDER = _has("verovio") and _has("cairosvg") and _has("pypdf")
+
+
 class PipelineLayoutTests(unittest.TestCase):
     def test_stub_run_writes_expected_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -50,6 +62,7 @@ class PipelineLayoutTests(unittest.TestCase):
             self.assertTrue(manifest["pages"][0]["image"].startswith("pages/"))
             self.assertIsNone(manifest["pages"][0]["decision"])
 
+    @unittest.skipUnless(HAS_RENDER, "SVG/PDF export needs verovio + cairosvg + pypdf")
     def test_render_and_pdf_exports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -74,6 +87,7 @@ class PipelineLayoutTests(unittest.TestCase):
             with self.assertRaises(BackendError):
                 run_pipeline([str(root / "a.png")], root / "w", engine="no-such-engine", log=_silent)
 
+    @unittest.skipUnless(HAS_PDF, "PDF input needs pypdfium2 + pypdf")
     def test_page_selection(self) -> None:
         from pypdf import PdfWriter
 

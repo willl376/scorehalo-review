@@ -9,6 +9,18 @@ from pathlib import Path
 from scorehalo import ingest as ing
 
 
+def _has(module: str) -> bool:
+    try:
+        __import__(module)
+        return True
+    except Exception:  # noqa: BLE001 - any import problem means "not usable"
+        return False
+
+
+# PDF ingestion needs pypdfium2 to rasterise and pypdf to build the fixture.
+HAS_PDF = _has("pypdfium2") and _has("pypdf")
+
+
 def _png(path: Path, size=(24, 24)) -> None:
     from PIL import Image
 
@@ -63,6 +75,7 @@ class ImageIngestTests(unittest.TestCase):
             self.assertEqual(ing.count_pages(src), 1)
 
 
+@unittest.skipUnless(HAS_PDF, "PDF ingestion needs pypdfium2 + pypdf")
 class PdfIngestTests(unittest.TestCase):
     def test_count_and_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
