@@ -100,7 +100,11 @@ class AudiverisBackend(RecognitionBackend):
             raise BackendError(f"source not found: {source}")
 
         env = dict(os.environ)
-        env.setdefault("JAVA_TOOL_OPTIONS", "-Djava.awt.headless=true")
+        # NOTE (Big Pickle, 2026-11-03): JAVA_TOOL_OPTIONS makes the Gradle
+        # start script's Java-version probe read "Picked up JAVA_TOOL_OPTIONS:"
+        # as the version string and abort ("[: Picked: unexpected operator").
+        # The launcher documents JAVA_OPTS for extra JVM options, so use that.
+        env.setdefault("JAVA_OPTS", "-Djava.awt.headless=true")
 
         with tempfile.TemporaryDirectory(prefix="scorehalo-audiveris-") as tmp:
             outdir = Path(tmp)

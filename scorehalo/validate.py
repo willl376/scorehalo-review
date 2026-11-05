@@ -44,9 +44,23 @@ def validate_musicxml(text: str) -> list[str]:
         if not measures:
             problems.append(f"part {part_id!r} has no <measure>")
 
+    declared = [c.get("id") for c in (part_list if part_list is not None else []) if _localname(c.tag) == "score-part"]
+    actual = [p.get("id") for p in parts]
+    if any(not pid for pid in declared + actual):
+        problems.append("missing part id")
+    if len(set(declared)) != len(declared) or len(set(actual)) != len(actual):
+        problems.append("duplicate part id")
+    if set(declared) != set(actual):
+        problems.append("part-list ids do not match part ids")
     return problems
 
 
 def is_valid_musicxml(text: str) -> bool:
     """True if :func:`validate_musicxml` reports no problems."""
     return not validate_musicxml(text)
+
+
+def validate_clefs(text: str) -> list[dict]:
+    """Read-only semantic diagnostics, separate from structural acceptance."""
+    from .clefs import audit_clefs
+    return audit_clefs(text)["findings"]

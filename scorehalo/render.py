@@ -61,10 +61,14 @@ def render_svgs(
     for _ in range(max(1, attempts)):
         try:
             toolkit = verovio.toolkit()
-            toolkit.setOptions(merged)
+            if toolkit.setOptions(merged) is False:
+                raise ValueError("Verovio rejected rendering options")
             if toolkit.loadData(musicxml):
                 count = toolkit.getPageCount()
-                return [toolkit.renderToSVG(page) for page in range(1, count + 1)]
+                svgs = [toolkit.renderToSVG(page) for page in range(1, count + 1)]
+                if not svgs or any(not svg.strip() for svg in svgs):
+                    raise ValueError("Verovio returned no usable pages")
+                return svgs
             last_error = ValueError("Verovio could not load the MusicXML document")
         except Exception as exc:  # noqa: BLE001 - retry transient toolkit failures
             last_error = exc

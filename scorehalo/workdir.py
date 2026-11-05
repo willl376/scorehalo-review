@@ -25,6 +25,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .storage import atomic_json
+
 
 @dataclass
 class WorkDir:
@@ -75,7 +77,7 @@ class WorkDir:
             handle.write(f"[{stamp}] {message}\n")
 
     def write_manifest(self, data: dict) -> str:
-        self.manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        atomic_json(self.manifest_path, data)
         return str(self.manifest_path)
 
     def read_manifest(self) -> dict:

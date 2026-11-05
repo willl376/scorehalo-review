@@ -112,6 +112,8 @@ def _rasterize_image(
     Image = _require_pillow()
     dest = outdir / f"page-{start:04d}.png"
     with Image.open(source) as img:
+        if getattr(img, "n_frames", 1) > 1:
+            raise IngestError("Multipage images must be split into single-page images before ingestion")
         img.convert("RGB").save(dest, format="PNG")
     return [
         IngestedPage(

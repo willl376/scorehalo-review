@@ -14,7 +14,9 @@ from pathlib import Path
 
 from .backends.base import RecognitionBackend, RecognizeRequest
 from .join import join_musicxml
+from .storage import atomic_json, atomic_text
 from .validate import validate_musicxml
+from .verification import verify_musicxml
 
 
 def _counts(musicxml: str) -> tuple[int, int]:
@@ -44,6 +46,9 @@ class PageOutcome:
     problems: list[str] = field(default_factory=list)
     error: str | None = None
 
+    warnings: list[str] = field(default_factory=list)
+    verification: dict = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         return {
             "index": self.index,
@@ -54,6 +59,8 @@ class PageOutcome:
             "notes": self.notes,
             "problems": self.problems,
             "error": self.error,
+            "warnings": self.warnings,
+            "verification": self.verification,
         }
 
 
@@ -77,6 +84,10 @@ def recognize_pages(
     if indices is None:
         indices = list(range(1, len(sources) + 1))
 
+    if len(indices) != len(sources):
+        raise ValueError("indices and sources must have equal length")
+    if len(set(indices)) != len(indices) or any(i < 1 for i in indices):
+        raise ValueError("page indices must be unique positive integers")
     outcomes: list[PageOutcome] = []
     for index, source in zip(indices, sources):
         src = Path(source)
@@ -91,7 +102,9 @@ def recognize_pages(
             continue
 
         xml_path = pages_dir / f"page-{index:03d}.musicxml"
-        xml_path.write_text(result.musicxml, encoding="utf-8")
+        atomic_text(xml_path, result.musicxml)
+        outcome.warnings = list(getattr(result, "warnings", []) or [])
+        outcome.verification = verify_musicxml(result.musicxml)
         outcome.musicxml_path = str(xml_path)
         outcome.problems = validate_musicxml(result.musicxml)
         outcome.ok = not outcome.problems
@@ -112,7 +125,10 @@ def join_outcomes(
     if not documents:
         return None
     joined = join_musicxml(documents, new_page=new_page)
-    Path(out_path).write_text(joined, encoding="utf-8")
+    problems = validate_musicxml(joined)
+    if problems:
+        raise ValueError("Joined score failed structural checks: " + "; ".join(problems))
+    atomic_text(out_path, joined)
     return joined
 
 
@@ -129,9 +145,12 @@ def write_manifest(
         "page_count": len(outcomes),
         "ok_count": sum(1 for o in outcomes if o.ok),
         "failed_count": sum(1 for o in outcomes if o.error),
+        "invalid_count": sum(1 for o in outcomes if not o.ok and not o.error),
+        "complete": bool(outcomes) and all(o.ok for o in outcomes),
+        "source_review": "not_performed",
         "joined": joined_path,
         "pages": [o.to_dict() for o in outcomes],
     }
     path = Path(outdir) / "manifest.json"
-    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    atomic_json(path, manifest)
     return str(path)

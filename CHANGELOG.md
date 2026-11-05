@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `clefs` module: read-only clef/staff audit. Records every `<clef>`
+  declaration, assigns the active clef to each note by musical onset (measure
+  inheritance, mid-measure changes, voice/`<backup>` ordering, grace notes,
+  `additional`/`print-object="no"` handling, octave changes) and reports
+  `clef_unresolved` / `clef_conflict` / `clef_sign_invalid` /
+  `clef_staff_invalid` / `clef_line_invalid` instead of guessing.
+- `verification` module: `verify_musicxml()` (structural + clef + meter findings)
+  and `summary()` for manifests, so per-note detail stays out of
+  `manifest.json` and lives in `verification.json`.
+- `storage` module: atomic JSON/text writes for manifests, per-page MusicXML and
+  the joined score (no half-written files after an interrupted run).
+- `join` verifies the clef-declaration inventory across a join and blocks the
+  output if a declaration changed.
+- `compare` now includes a clef audit per engine and a "Clef audit" section in
+  the report; its recognition cache is keyed by the image's SHA-256.
+- `validate` checks part-ID consistency (missing / duplicate / part-list
+  mismatch) and exposes `validate_clefs()`.
+- `run` writes `verification.json`, reports `complete`, `join_error`,
+  `export_errors`, `invalid_count`, `source_review: "not_performed"`, and exits
+  non-zero when the join or an export failed.
+- Review UI: `verification.json` download link, per-page findings list, clef
+  declaration/finding counts, and an explicit "Source accuracy: not established"
+  line.
+- Review UI: **Accept** stores the page MusicXML's SHA-256 and appends to
+  `review_history`; an acceptance whose file changed is shown as stale.
 - `run` command: the one-command pipeline (`ingest -> recognize -> join ->
   export -> manifest`) for PDFs or images, with `--pages`, `--render`, `--pdf`,
   `--cache` and `--serve`.
@@ -38,6 +63,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 - Review UI shows skipped pages with their reason and no recognized thumbnail.
 
 ### Fixed
+- `audiveris` backend set `JAVA_TOOL_OPTIONS`, which the Gradle launcher's
+  Java-version probe misreads as a version string (`[: Picked: unexpected
+  operator`) and aborts; it now uses `JAVA_OPTS`.
+- Duplicate `clef_conflict` findings: one was emitted per note after a
+  conflicting declaration (19 identical entries on a real homr page). Now one
+  finding per (part, staff, measure ordinal, onset).
+- Manifest bloat: full per-note clef assignments were embedded per page (~160 kB
+  per page). Manifests now carry `verification.summary()`.
 - `render` retries a rare Verovio font-resource load race instead of surfacing a
   spurious failure/500.
 - `serve` resolves relative manifest paths (the joined-score link was dropped)

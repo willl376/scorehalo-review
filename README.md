@@ -34,6 +34,9 @@ scorehalo/
     audiveris_backend.py  # drives the `Audiveris` CLI (AGPL, arm's length; .mxl)
     oemer_backend.py # drives the `oemer` CLI (MIT, arm's length)
   validate.py        # stdlib MusicXML 4.0 structural checks
+  clefs.py           # read-only clef/staff audit (declarations + per-note assignment)
+  verification.py    # per-page verification report + compact manifest summary
+  storage.py         # atomic file writes (JSON/text) for manifests and scores
   ingest.py          # PDF/image -> page PNGs (pypdfium2 + Pillow)
   workdir.py         # predictable run directory + manifest/log helpers
   triage.py          # fast page classification (blank/cover/photo/music/text)
@@ -66,6 +69,42 @@ scorehalo run songbook.pdf -b homr --render --pdf --serve
 `scorehalo doctor` prints the interpreter/package paths, optional dependencies
 and which recognition engines are runnable here — the first thing to check on a
 new machine.
+
+## Verification: structural, clef and source accuracy
+
+Every run writes **two** levels of report, because they answer different
+questions:
+
+- `manifest.json` — the review contract: per-page status, measure/note counts,
+  warnings, triage/restore data, the reviewer's `decision`, and a **compact**
+  verification summary (`clefs.declarations`, finding list, counts). It stays
+  small (a few kB per page) so it can be read by the UI and by scripts.
+- `verification.json` — the full evidence: every clef declaration, the active
+  clef for each note with its onset and origin, overfull-measure findings, and
+  the joined score's report. This is the file to open when a page looks wrong.
+
+What the checks mean, stated plainly:
+
+- **Structural checks passed** means the document is well-formed MusicXML 4.0
+  with consistent part ids and non-empty parts. It does **not** mean the notes
+  are right.
+- **Clef audit** (`clefs.py`) is read-only: it records every `<clef>` the
+  encoder wrote, assigns the active clef to each note by musical onset (handling
+  inheritance across measures, mid-measure changes, voice/`<backup>` ordering,
+  grace notes and `print-object="no"`), and reports what it cannot resolve
+  (`clef_unresolved`, `clef_conflict`, `clef_staff_invalid`, ...). It never
+  guesses and never edits the score.
+- **Source accuracy is not established.** No automated check compares a
+  transcription against the scanned page. A clean report means "nothing
+  contradicts itself", not "this matches the print". The review UI says so on
+  every page.
+
+Because of that, `analyze --fix-clefs` refuses multistaff input: it infers clefs
+from encoded pitches, which would hide exactly the error you are looking for.
+
+In the review UI, **Accept** records the SHA-256 of the page's MusicXML. If the
+file changes afterwards, the acceptance is shown as stale and the page needs
+review again; every decision is appended to `review_history`.
 
 ## Graphics tolerance (the differentiator)
 

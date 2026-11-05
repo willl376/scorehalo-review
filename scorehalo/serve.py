@@ -13,14 +13,17 @@ links instead of images.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import mimetypes
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import render
+from .storage import atomic_json
 
 _CSS = """
 :root { color-scheme: light dark; }
@@ -112,10 +115,19 @@ def set_decision(outdir: Path, index: int, value: str) -> bool:
     outdir = Path(outdir)
     manifest = load_manifest(outdir)
     pages = manifest.get("pages", [])
-    if not (1 <= index <= len(pages)):
+    if value not in {"accept", "reject", "clear"}:
+        raise ValueError("invalid review decision")
+    page = next((p for pos, p in enumerate(pages, 1) if p.get("index", pos) == index), None)
+    if page is None:
         return False
-    pages[index - 1]["decision"] = None if value == "clear" else value
-    (outdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    page["decision"] = None if value == "clear" else value
+    rel = _relative(outdir, page.get("musicxml_path"))
+    target = safe_path(outdir, rel) if rel else None
+    digest = hashlib.sha256(target.read_bytes()).hexdigest() if target else None
+    page["reviewed_sha256"] = digest if value == "accept" else None
+    page.setdefault("review_history", []).append({"decision": value, "sha256": digest,
+                                                   "timestamp": time.time()})
+    atomic_json(outdir / "manifest.json", manifest)
     return True
 
 
@@ -132,6 +144,15 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
     outdir = Path(outdir).resolve()
     manifest = load_manifest(outdir)
     pages = manifest.get("pages", [])
+    for page in pages:
+        if page.get("decision") == "accept":
+            rel = _relative(outdir, page.get("musicxml_path"))
+            target = safe_path(outdir, rel) if rel else None
+            digest = hashlib.sha256(target.read_bytes()).hexdigest() if target else None
+            if not digest or digest != page.get("reviewed_sha256"):
+                page["decision"] = None
+                page.setdefault("problems", []).append("Acceptance is stale or unversioned; review again")
+
     engine = html.escape(str(manifest.get("engine") or manifest.get("backend") or "?"))
     ok_count = manifest.get("ok_count", sum(1 for p in pages if p.get("ok")))
     skipped_count = manifest.get("skipped_count", sum(1 for p in pages if p.get("skipped")))
@@ -172,6 +193,9 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
             downloads.append(f"<a href='{_raw_link(rel)}'>{fmt}</a>")
     if manifest_rel:
         downloads.append(f"<a href='{_raw_link(manifest_rel)}'>manifest.json</a>")
+    report_rel = _relative(outdir, manifest.get("verification_report"))
+    if report_rel:
+        downloads.append(f"<a href='{_raw_link(report_rel)}'>verification.json</a>")
     if downloads:
         parts.append("<div class='dl'><b>Download:</b> " + " &middot; ".join(downloads) + "</div>")
 
@@ -194,7 +218,7 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
             reason = html.escape(str(page.get("skip_reason") or "not music"))
             status = f"<span class='tag skip'>skipped</span> {reason}"
         elif page.get("ok"):
-            status = "<span class='ok'>valid</span>"
+            status = "<span class='ok'>structural checks passed</span>"
         elif page.get("error"):
             status = f"<span class='bad'>error</span> {html.escape(str(page['error']))}"
         else:
@@ -209,11 +233,20 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
                 f"{page.get('measures', '?')} measures &middot; "
                 f"{page.get('notes', '?')} notes"
             )
+        messages = list(page.get("warnings") or []) + list(page.get("problems") or [])
+        for finding in (page.get("verification") or {}).get("findings", []):
+            messages.append(f"{finding.get('code')}: part {finding.get('part')}, measure {finding.get('measure')}: {finding.get('message')}")
+        detail += "<br>Source accuracy: not established by automated checks"
+        clef_data = (page.get("verification") or {}).get("clefs")
+        if clef_data is not None:
+            detail += f"<br>Clef declarations: {len(clef_data.get('declarations', []))}; clef findings: {len(clef_data.get('findings', []))}"
+        if messages:
+            detail += "<ul>" + "".join("<li>" + html.escape(str(m)) + "</li>" for m in messages) + "</ul>"
         rel = _relative(outdir, page.get("musicxml_path"))
         link = raw(rel)
 
         # original scan (if ingested) next to the engraved result
-        image_rel = page.get("image")
+        image_rel = page.get("original_image") or page.get("image")
         figures = []
         if image_rel:
             figures.append(
@@ -221,6 +254,9 @@ def render_index(outdir: Path, score_page_count: int | None = None) -> str:
                 + "' alt='original page " + str(number) + "'>"
                 "<figcaption>original</figcaption></figure>"
             )
+        processed = page.get("image")
+        if processed and processed != image_rel:
+            figures.append("<figure><img class='zoom' src='" + _raw_link(processed) + "'><figcaption>processed</figcaption></figure>")
         if rel:
             figures.append(
                 "<figure><img class='zoom' src='/svg/page?page=" + str(number)
@@ -283,9 +319,10 @@ class ReviewHandler(BaseHTTPRequestHandler):
         if key not in cache:
             manifest = load_manifest(self.outdir)
             pages = manifest.get("pages", [])
-            if not (1 <= index <= len(pages)):
+            page = next((p for pos, p in enumerate(pages, 1) if p.get("index", pos) == index), None)
+            if page is None:
                 raise KeyError(f"no page {index}")
-            rel = _relative(self.outdir, pages[index - 1].get("musicxml_path"))
+            rel = _relative(self.outdir, page.get("musicxml_path"))
             if not rel:
                 raise FileNotFoundError("page has no MusicXML path")
             text = (self.outdir / rel).read_text(encoding="utf-8")
@@ -296,6 +333,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         try:
+            manifest = load_manifest(self.outdir)
+            paths = [manifest.get("joined")] + [p.get("musicxml_path") for p in manifest.get("pages", [])]
+            fingerprint = []
+            for path in paths:
+                rel = _relative(self.outdir, path)
+                target = safe_path(self.outdir, rel) if rel else None
+                fingerprint.append(hashlib.sha256(target.read_bytes()).hexdigest() if target else None)
+            if getattr(self.server, "fingerprint", None) != fingerprint:
+                self.server.cache.clear()
+                self.server.fingerprint = fingerprint
             if parsed.path == "/":
                 count = None
                 if render.available():
@@ -306,7 +353,10 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 return self._send(200, render_index(self.outdir, count))
             if parsed.path == "/svg/page":
                 svgs = self._page_svgs(int(query.get("page", ["1"])[0]))
-                return self._send(200, svgs[0], "image/svg+xml")
+                number = int(query.get("rendered", ["1"])[0])
+                if not 1 <= number <= len(svgs):
+                    return self._send(404, "No rendered page")
+                return self._send(200, svgs[number - 1], "image/svg+xml")
             if parsed.path == "/svg/score":
                 svgs = self._score_svgs()
                 number = int(query.get("page", ["1"])[0])

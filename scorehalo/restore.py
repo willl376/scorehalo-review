@@ -46,6 +46,7 @@ class GraphicRegion:
             "width": self.width,
             "height": self.height,
             "area": self.area,
+            "area_units": "detection_pixels",
             "kind": self.kind,
         }
 
@@ -174,7 +175,12 @@ def restore_page(
     colour; enhancement then works on the cleaned page.  Returns the restored
     image and a small report dict for the manifest.
     """
-    report: dict = {"regions": [], "enhanced": False}
+    report: dict = {"regions": [], "enhanced": False,
+                    "mask_requested": mask, "detector_options": {
+                        "max_dim": kwargs.get("max_dim", 1500),
+                        "solid_frac": kwargs.get("solid_frac", 0.02),
+                        "sat_thresh": kwargs.get("sat_thresh", 60),
+                        "min_area_frac": kwargs.get("min_area_frac", 0.02)}}
     out = image
     if mask:
         out, regions = mask_graphics(out, **kwargs)
@@ -183,5 +189,5 @@ def restore_page(
         ek = enhance_kwargs or {}
         out = enhance(out, **ek)
         report["enhanced"] = True
-        report["enhance"] = {k: ek.get(k) for k in ("clip_limit", "tile") if k in ek}
+        report["enhance"] = {"clip_limit": ek.get("clip_limit", 2.0), "tile": ek.get("tile", 8)}
     return out, report

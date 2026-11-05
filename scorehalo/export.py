@@ -55,13 +55,24 @@ def write_mxl(musicxml: str, path: str | Path) -> str:
     return str(dest)
 
 
+def _render_checked(musicxml, options):
+    from . import render
+    try:
+        svgs = render.render_svgs(musicxml, options)
+        if not svgs or any(not svg.strip() for svg in svgs):
+            raise ValueError("Renderer returned empty output")
+        return svgs
+    except Exception as exc:
+        raise ExportError(f"Rendering failed: {exc}") from exc
+
+
 def write_svgs(musicxml: str, outdir: str | Path, options: dict | None = None) -> list[str]:
     """Render ``musicxml`` to ``outdir/page-NNN.svg``; return the paths."""
     from . import render
 
     if not render.available():
         raise ExportError("SVG export needs Verovio (pip install verovio)")
-    svgs = render.render_svgs(musicxml, options)
+    svgs = _render_checked(musicxml, options)
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
@@ -69,6 +80,9 @@ def write_svgs(musicxml: str, outdir: str | Path, options: dict | None = None) -
         path = out / f"page-{number:03d}.svg"
         path.write_text(svg, encoding="utf-8")
         paths.append(str(path))
+    for stale in out.glob("page-*.svg"):
+        if stale.name[5:-4].isdigit() and str(stale) not in paths:
+            stale.unlink()
     return paths
 
 
@@ -97,7 +111,7 @@ def write_pdf(musicxml: str, path: str | Path, options: dict | None = None) -> s
     cairosvg = _require_cairosvg()
     PdfReader, PdfWriter = _require_pypdf()
 
-    svgs = render.render_svgs(musicxml, options)
+    svgs = _render_checked(musicxml, options)
     writer = PdfWriter()
     for svg in svgs:
         pdf_bytes = cairosvg.svg2pdf(bytestring=svg.encode("utf-8"))

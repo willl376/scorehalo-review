@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import importlib
 import math
+import warnings
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -78,6 +79,13 @@ def normalize(musicxml: str, *, strip_ties: bool = True, fix_clefs: bool = False
         except Exception:  # noqa: BLE001 - never fail normalization on a quirk
             pass
     if fix_clefs:
+        warnings.warn("fix_clefs infers from encoded pitches, not source images; use only on a derivative", RuntimeWarning, stacklevel=2)
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(musicxml)
+        def local(tag): return tag.rsplit("}", 1)[-1]
+        if any((local(e.tag) == "staves" and (e.text or "").strip() != "1") or
+               (local(e.tag) == "staff" and (e.text or "").strip() != "1") for e in root.iter()):
+            raise ValueError("Automatic clef inference is disabled for multistaff input; review the source")
         parts = score.parts if isinstance(score, stream.Score) else [score]
         for part in parts:
             if not part.recurse().getElementsByClass(clef.Clef):

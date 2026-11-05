@@ -83,12 +83,15 @@ def _parse_pages(spec: str | None) -> set[int] | None:
     for part in spec.split(","):
         part = part.strip()
         if not part:
-            continue
-        if "-" in part:
-            low, high = part.split("-", 1)
-            pages.update(range(int(low), int(high) + 1))
-        else:
-            pages.add(int(part))
+            raise ValueError("empty page selection component")
+        bounds = part.split("-")
+        if len(bounds) > 2:
+            raise ValueError("invalid page range")
+        low = int(bounds[0])
+        high = int(bounds[-1])
+        if low < 1 or high < low:
+            raise ValueError("page numbers must be positive and ranges ascending")
+        pages.update(range(low, high + 1))
     return pages
 
 
@@ -151,7 +154,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
         serve_review(str(result.root), port=args.port, open_browser=args.open)
 
-    return 0 if result.ok_count == result.page_count else 1
+    manifest = json.loads(Path(result.manifest).read_text(encoding="utf-8"))
+    return 0 if result.ok_count == result.page_count and not manifest.get("join_error") and not manifest.get("export_errors") else 1
 
 
 def _cmd_backends(args: argparse.Namespace) -> int:
@@ -227,17 +231,20 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     joined_path = None
     if not args.no_join:
         candidate = str(Path(args.output) / "score.musicxml")
-        if join_outcomes(outcomes, candidate, new_page=not args.no_new_page) is not None:
-            joined_path = candidate
-        else:
-            print("warning: no valid pages to join", file=sys.stderr)
+        try:
+            if join_outcomes(outcomes, candidate, new_page=not args.no_new_page) is not None:
+                joined_path = candidate
+            else:
+                print("warning: no valid pages to join", file=sys.stderr)
+        except ValueError as exc:
+            print(f"warning: join blocked: {exc}", file=sys.stderr)
 
     manifest = write_manifest(outcomes, args.output, backend=args.backend, joined_path=joined_path)
     ok = sum(1 for outcome in outcomes if outcome.ok)
     print(f"done: {ok}/{len(outcomes)} pages ok; manifest={manifest}")
     if joined_path:
         print(f"joined score: {joined_path}")
-    return 0 if ok == len(outcomes) else 1
+    return 0 if ok == len(outcomes) and (args.no_join or joined_path) else 1
 
 
 def _cmd_compare(args: argparse.Namespace) -> int:
@@ -291,7 +298,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     lines = ["# ScoreHalo harmonic analysis (music21)", ""]
     for name, sig in sigs.items():
         lines.append(f"## {name}")
-        lines.append(f"- key: {sig['key']} (confidence {sig['key_confidence']})")
+        lines.append(f"- key: {sig['key']} (key correlation {sig['key_confidence']})")
         lines.append(
             f"- moments: {sig['moments']} | consonant {sig['consonant']} / "
             f"dissonant {sig['dissonant']} (ratio {sig['consonance_ratio']})"

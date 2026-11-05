@@ -22,6 +22,7 @@ while a low score flags a page that needs eyes.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import math
@@ -31,6 +32,7 @@ from collections import Counter
 from pathlib import Path
 
 from .backends import BackendError, RecognizeRequest, get_backend
+from .clefs import audit_clefs
 from .validate import validate_musicxml
 
 _STEPS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
@@ -105,6 +107,7 @@ def analyze(text: str) -> dict:
                 signature[(midi, round(quarters, 3))] += 1
 
     return {
+        "clefs": audit_clefs(text),
         "valid": not problems,
         "problems": problems,
         "parts": len(parts),
@@ -146,6 +149,15 @@ def compare_images(images, engines, outdir, cache=None, harmonic=False) -> Path:
     additionally reduces each engine's output to a theory-aware fingerprint via
     music21 (see :mod:`scorehalo.analysis`) when music21 is available.
     """
+    images, engines = list(images), list(engines)
+    # NOTE (Big Pickle, 2026-11-03): a single engine is a valid report (per-page
+    # structural/agreement metrics for one transcript).  The bundle required two
+    # distinct engines; that broke the repo's own single-engine test and a
+    # useful workflow, so the requirement is not installed.
+    if len(set(engines)) != len(engines):
+        raise ValueError("Engine identifiers must be distinct")
+    if any(not name or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in name) for name in engines):
+        raise ValueError("Invalid engine identifier")
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     cache = Path(cache) if cache else None
@@ -159,9 +171,10 @@ def compare_images(images, engines, outdir, cache=None, harmonic=False) -> Path:
     records: list[dict] = []
     for image in images:
         image = Path(image)
+        digest = hashlib.sha256(image.read_bytes()).hexdigest()
         entry = {"image": str(image), "stem": image.stem, "engines": {}}
         for name in engines:
-            cached = cache / name / f"{image.stem}.musicxml" if cache else None
+            cached = cache / name / f"{image.stem}-{digest}.musicxml" if cache else None
             if cached is not None and cached.is_file():
                 text = cached.read_text(encoding="utf-8")
                 seconds, origin = None, "cached"
@@ -171,13 +184,17 @@ def compare_images(images, engines, outdir, cache=None, harmonic=False) -> Path:
                     start = time.time()
                     result = backend.recognize(RecognizeRequest(source=image))
                     seconds, text, origin = time.time() - start, result.musicxml, "ran"
-                except BackendError as exc:
+                except Exception as exc:
                     entry["engines"][name] = {"error": str(exc), "valid": False}
                     continue
                 if cached is not None:
                     cached.parent.mkdir(parents=True, exist_ok=True)
                     cached.write_text(text, encoding="utf-8")
-            stats = analyze(text)
+            try:
+                stats = analyze(text)
+            except Exception as exc:
+                entry["engines"][name] = {"error": f"Analysis failed: {exc}", "valid": False}
+                continue
             stats["seconds"] = seconds
             stats["origin"] = origin
             if harmonic and analysis_mod is not None:
@@ -290,12 +307,18 @@ def render_report(records: list[dict], engines: list[str], harmonic: bool = Fals
 
         _render_harmonic(lines, records, engines, pairs, analysis_mod)
 
+    lines.append("\n## Clef audit (source accuracy not established)\n")
+    for entry in records:
+        for name, stats in entry["engines"].items():
+            audit = stats.get("clefs")
+            if audit is not None:
+                lines.append(f"- {entry['stem']} / {name}: {len(audit['declarations'])} declarations, {len(audit['findings'])} findings; details in comparison.json")
     lines.append("\n## Reading this report\n")
     lines.append(
         "- Both engines emitting **valid** MusicXML does not mean they agree; the\n"
         "  agreement block is the signal.\n"
-        "- High pitch-class cosine + high signature Jaccard => the engines heard the\n"
-        "  same music even if part/measure segmentation differed.\n"
+        "- High pitch-class cosine + high signature Jaccard indicate similar pitch/duration inventories;\n"
+        "  onset, ordering, staff/voice assignments and source accuracy remain unverified.\n"
         "- Low signature Jaccard with high pitch-class cosine => same harmony, but\n"
         "  different note durations/voicing -- proofread before trusting.\n"
     )

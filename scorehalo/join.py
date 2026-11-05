@@ -9,6 +9,8 @@ renumbering measures sequentially.  Page boundaries are marked with a
 Assumptions (kept deliberately simple and documented):
 * Every page is MusicXML ``score-partwise``.
 * Parts are identified by their ``id`` (homr emits stable ``P1``, ``P2`` ...).
+* Part-ID sets may differ between pages (real homr output gains a part on some
+  pages); missing or duplicate IDs within one page are rejected.
 * The document header is taken from the **first** page.  The part list is the
   ordered *union* of part ids across all pages; ids absent from the first page's
   list get a synthesised ``<score-part>``.
@@ -20,6 +22,8 @@ from __future__ import annotations
 import copy
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from .clefs import declaration_inventory
 
 _XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>\n'
 
@@ -48,6 +52,16 @@ def join_musicxml(documents: list[str], *, new_page: bool = True) -> str:
                 f"document {index} has root <{_localname(root.tag)}>, expected <score-partwise>"
             )
 
+    # NOTE (Big Pickle, 2026-11-03): the review bundle made a differing part-ID
+    # set across pages a hard error.  Real homr output varies its part set page
+    # to page (106-page songbook: P1 on some pages, P1+P2 on others, P1+P2+P3 on
+    # one), and the union-of-parts join below is what preserves every note.  A
+    # hard block made every such book unjoinable, so it is deliberately not
+    # installed.  Missing/duplicate IDs are still rejected.
+    for root in roots:
+        ids = [p.get("id") for p in _children(root, "part")]
+        if any(not pid for pid in ids) or len(ids) != len(set(ids)):
+            raise ValueError("Missing or duplicate part IDs")
     first = roots[0]
 
     # Ordered union of part ids across every page (engines such as homr emit a
@@ -110,6 +124,13 @@ def join_musicxml(documents: list[str], *, new_page: bool = True) -> str:
                         joined.insert(0, print_el)
                 part_el.append(joined)
 
+    expected = {pid: [] for pid in ordered_parts}
+    for document in documents:
+        for pid, measures in declaration_inventory(document).items():
+            expected[pid].extend(measures)
+    serialized = ET.tostring(result, encoding="unicode")
+    if declaration_inventory(serialized) != expected:
+        raise ValueError("Clef declarations changed during joining; output blocked")
     ET.indent(result, space="  ")
     return _XML_DECL + ET.tostring(result, encoding="unicode")
 

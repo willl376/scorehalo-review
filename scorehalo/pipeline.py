@@ -19,6 +19,8 @@ from . import export
 from .backends import BackendError, get_backend
 from .batch import PageOutcome, join_outcomes, recognize_pages
 from .ingest import IngestedPage, ingest
+from .storage import atomic_json
+from .verification import summary as verification_summary, verify_musicxml
 from .workdir import WorkDir
 
 
@@ -61,6 +63,9 @@ def _build_manifest(
                 "source": ingested.source,
                 "source_page": ingested.source_page,
                 "image": work.relative(info.get("image") or ingested.image),
+                "original_image": work.relative(ingested.image),
+                "warnings": outcome.warnings if outcome else [],
+                "verification": verification_summary(outcome.verification) if outcome else {},
                 "musicxml_path": work.relative(outcome.musicxml_path) if outcome else None,
                 "ok": bool(outcome.ok) if outcome else False,
                 "measures": outcome.measures if outcome else 0,
@@ -80,6 +85,9 @@ def _build_manifest(
         "page_count": len(pages),
         "ok_count": sum(1 for o in outcomes if o.ok),
         "failed_count": sum(1 for o in outcomes if o.error),
+        "invalid_count": sum(1 for o in outcomes if not o.ok and not o.error),
+        "recognition_complete": bool(outcomes) and all(o.ok for o in outcomes),
+        "source_review": "not_performed",
         "skipped_count": sum(1 for e in page_entries if e["skipped"]),
         "joined": work.relative(joined),
         "exports": {fmt: work.relative(path) for fmt, path in exports.items()},
@@ -186,11 +194,17 @@ def run_pipeline(
         work.log(f"page {outcome.index}: ok={outcome.ok} {detail}")
 
     # 4. join
+    join_error = None
+    export_errors = {}
     joined_xml = None
     joined_path = None
     if join:
         candidate = work.score_musicxml
-        joined_xml = join_outcomes(outcomes, str(candidate), new_page=True)
+        try:
+            joined_xml = join_outcomes(outcomes, str(candidate), new_page=True)
+        except ValueError as exc:
+            log(f"warning: join blocked: {exc}")
+            join_error = str(exc)
         if joined_xml is None:
             log("warning: no valid pages to join")
         else:
@@ -203,19 +217,22 @@ def run_pipeline(
         try:
             exports["mxl"] = export.write_mxl(joined_xml, work.score_mxl)
         except export.ExportError as exc:  # pragma: no cover
+            export_errors["mxl"] = str(exc)
             log(f"warning: mxl export skipped: {exc}")
         if render_svg:
             try:
-                exports["svg"] = str(work.svg_dir)
                 export.write_svgs(joined_xml, work.svg_dir)
+                exports["svg"] = str(work.svg_dir)
                 log(f"rendered SVG -> {work.relative(work.svg_dir)}")
             except export.ExportError as exc:
+                export_errors["svg"] = str(exc)
                 log(f"warning: SVG render skipped: {exc}")
         if make_pdf:
             try:
                 exports["pdf"] = export.write_pdf(joined_xml, work.root / "score.pdf")
                 log("wrote PDF score.pdf")
             except export.ExportError as exc:
+                export_errors["pdf"] = str(exc)
                 log(f"warning: PDF export skipped: {exc}")
 
     # 6. manifest
@@ -223,6 +240,15 @@ def run_pipeline(
         work, engine=engine, dpi=dpi, pages=pages, outcomes=outcomes,
         meta=meta, joined=joined_path, exports=exports,
     )
+    manifest["join_error"] = join_error
+    manifest["export_errors"] = export_errors
+    manifest["complete"] = bool(pages) and all(o.ok for o in outcomes) and len(outcomes) == len(pages) and not join_error
+    report = {"source_review": "not_performed", "clef_audit": "enabled; XML declarations only, not image recognition", "join_error": join_error,
+              "pages": [{"index": o.index, **o.verification} for o in outcomes],
+              "joined": verify_musicxml(joined_xml) if joined_xml else None}
+    report_path = work.root / "verification.json"
+    atomic_json(report_path, report)
+    manifest["verification_report"] = work.relative(report_path)
     manifest_path = work.write_manifest(manifest)
     work.log(
         f"manifest: {len(pages)} pages, {manifest['ok_count']} ok, "
